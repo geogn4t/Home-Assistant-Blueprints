@@ -27,6 +27,6 @@ action:
       entity_id: !input light_entity
   - service: notify.mobile_app_pixel_6
     data:
-      message: "Light turned on at !input trigger_time"
+      message: "Light turned on at {{ now().strftime('%I:%M %p') }}"
 
 mode: single

@@ -67,6 +67,16 @@ blueprint:
           max: 100
           unit_of_measurement: "%"
           step: 1
+    blink_delay:
+      name: Blink Rate (Seconds)
+      description: Time between blinks if precipitation threshold is exceeded
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          unit_of_measurement: seconds
+          step: 1
 
 trigger:
   - platform: time
@@ -81,6 +91,7 @@ variables:
   precip_threshold: !input precip_threshold
   precipitation_entity: !input precipitation_entity
   debug_precip_override: !input debug_precip_override
+  blink_delay: !input blink_delay
 
 action:
   - service: weather.get_forecasts
@@ -144,11 +155,14 @@ action:
                   data:
                     rgb_color: "{{ rgb_color }}"
                     brightness: 255
-                - delay: "00:00:01"
+                    transition: 0
+                - delay:
+                    seconds: "{{ blink_delay }}"
                 - service: light.turn_off
                   target:
                     entity_id: "{{ light_entity }}"
-                - delay: "00:00:01"
+                - delay:
+                    seconds: "{{ blink_delay }}"
     default:
       - service: light.turn_on
         target:
@@ -156,6 +170,7 @@ action:
         data:
           rgb_color: "{{ rgb_color }}"
           brightness: 255
+          transition: 0
 
   - service: "{{ notify_device }}"
     data:

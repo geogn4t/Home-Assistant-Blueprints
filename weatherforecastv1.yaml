@@ -14,7 +14,7 @@ blueprint:
         time:
     light_entity:
       name: Light Entity
-      description: The light to turn on
+      description: The light to control
       selector:
         entity:
           domain: light
@@ -50,6 +50,23 @@ blueprint:
           max: 100
           unit_of_measurement: "%"
           step: 1
+    precipitation_entity:
+      name: Precipitation Forecast Entity
+      description: Entity with precipitation probability (optional)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    debug_precip_override:
+      name: Debug Precip Override
+      description: Force a value for precipitation percent (set to -1 to disable)
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 100
+          unit_of_measurement: "%"
+          step: 1
 
 trigger:
   - platform: time
@@ -62,6 +79,8 @@ variables:
   light_entity: !input light_entity
   notify_device: !input notify_device
   precip_threshold: !input precip_threshold
+  precipitation_entity: !input precipitation_entity
+  debug_precip_override: !input debug_precip_override
 
 action:
   - service: weather.get_forecasts
@@ -74,7 +93,16 @@ action:
   - variables:
       forecast: "{{ forecast_data[weather_entity].forecast[forecast_day] }}"
       temp_f: "{{ forecast.temperature | float(0) }}"
-      precipitation: "{{ forecast.precipitation_probability | float(0) }}"
+      actual_precip: >
+        {% if debug_precip_override | int(-1) >= 0 %}
+          {{ debug_precip_override | int }}
+        {% elif precipitation_entity != "" and states(precipitation_entity) not in ['unknown', 'unavailable'] %}
+          {{ states(precipitation_entity) | float(0) }}
+        {% elif 'precipitation_probability' in forecast %}
+          {{ forecast.precipitation_probability | float(0) }}
+        {% else %}
+          0
+        {% endif %}
       rgb_color: >
         {% if temp_f < 0 %}
           [128, 0, 128]
@@ -105,7 +133,7 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ precipitation >= precip_threshold }}"
+            value_template: "{{ actual_precip >= precip_threshold }}"
         sequence:
           - repeat:
               count: 3
@@ -131,6 +159,6 @@ action:
 
   - service: "{{ notify_device }}"
     data:
-      message: "🌡️ Forecast high: {{ temp_f }}°F — Light color: {{ rgb_color }} | Precipitation: {{ precipitation }}% at {{ current_time }}"
+      message: "🌡️ Forecast high: {{ temp_f }}°F — Light color: {{ rgb_color }} | Precip: {{ actual_precip }}% at {{ current_time }}"
 
 mode: single

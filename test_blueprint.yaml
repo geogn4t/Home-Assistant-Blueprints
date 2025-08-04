@@ -1,43 +1,43 @@
 blueprint:
-  name: Scheduled Light On with Notification
+  name: Scheduled Light On with Weather Forecast
   description: >
-    Turns on a user-defined light and sends a notification at a set time.
+    Turns on a light with a color based on the forecasted high temp at a specified time.
   domain: automation
   input:
-  trigger_time:
-    name: Trigger Time
-    description: Time to run this automation
-    default: "08:00:00"
-    selector:
-      time:
-  light_entity:
-    name: Light Entity
-    description: The light to turn on
-    selector:
-      entity:
-        domain: light
-  weather_entity:
-    name: Weather Entity
-    description: Weather entity that supports forecast
-    selector:
-      entity:
-        domain: weather
-  forecast_day:
-    name: Forecast Day
-    description: 0 = today, 1 = tomorrow
-    default: 0
-    selector:
-      number:
-        min: 0
-        max: 1
-        mode: slider
-        step: 1
-  notify_device:
-    name: Notification Device
-    description: Where to send a notification
-    selector:
-      entity:
-        domain: notify
+    trigger_time:
+      name: Trigger Time
+      description: Time to run this automation
+      default: "08:00:00"
+      selector:
+        time:
+    light_entity:
+      name: Light Entity
+      description: The light to turn on
+      selector:
+        entity:
+          domain: light
+    weather_entity:
+      name: Weather Entity
+      description: Weather entity that supports forecast
+      selector:
+        entity:
+          domain: weather
+    forecast_day:
+      name: Forecast Day
+      description: 0 = today, 1 = tomorrow
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1
+          mode: slider
+          step: 1
+    notify_device:
+      name: Notification Device
+      description: Where to send a notification
+      selector:
+        entity:
+          domain: notify
 
 trigger:
   - platform: time
@@ -97,4 +97,5 @@ action:
   - service: "{{ notify_device }}"
     data:
       message: "🌡️ Forecast high: {{ temp_f }}°F — Light color set to {{ rgb_color }} at {{ current_time }}"
+
 

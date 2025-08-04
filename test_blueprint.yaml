@@ -4,18 +4,40 @@ blueprint:
     Turns on a user-defined light and sends a notification at a set time.
   domain: automation
   input:
-    trigger_time:
-      name: Trigger Time
-      description: Time to run this automation
-      default: "08:00:00"
-      selector:
-        time:
-    light_entity:
-      name: Light Entity
-      description: The light to turn on
-      selector:
-        entity:
-          domain: light
+  trigger_time:
+    name: Trigger Time
+    description: Time to run this automation
+    default: "08:00:00"
+    selector:
+      time:
+  light_entity:
+    name: Light Entity
+    description: The light to turn on
+    selector:
+      entity:
+        domain: light
+  weather_entity:
+    name: Weather Entity
+    description: Weather entity that supports forecast
+    selector:
+      entity:
+        domain: weather
+  forecast_day:
+    name: Forecast Day
+    description: 0 = today, 1 = tomorrow
+    default: 0
+    selector:
+      number:
+        min: 0
+        max: 1
+        mode: slider
+        step: 1
+  notify_device:
+    name: Notification Device
+    description: Where to send a notification
+    selector:
+      entity:
+        domain: notify
 
 trigger:
   - platform: time
@@ -23,11 +45,56 @@ trigger:
 
 variables:
   current_time: "{{ now().strftime('%I:%M %p') }}"
+  weather_entity: !input weather_entity
+  forecast_day: !input forecast_day
+  light_entity: !input light_entity
+  notify_device: !input notify_device
 
 action:
+  - service: weather.get_forecasts
+    data:
+      type: daily
+    target:
+      entity_id: "{{ weather_entity }}"
+    response_variable: forecast_data
+
+  - variables:
+      temp_f: >
+        {{ forecast_data[weather_entity].forecast[forecast_day].temperature | float(0) }}
+      rgb_color: >
+        {% if temp_f < 0 %}
+          [128, 0, 128]
+        {% elif temp_f < 10 %}
+          [75, 0, 130]
+        {% elif temp_f < 20 %}
+          [0, 0, 255]
+        {% elif temp_f < 30 %}
+          [0, 128, 255]
+        {% elif temp_f < 40 %}
+          [0, 255, 255]
+        {% elif temp_f < 50 %}
+          [0, 255, 128]
+        {% elif temp_f < 60 %}
+          [0, 255, 0]
+        {% elif temp_f < 70 %}
+          [255, 255, 0]
+        {% elif temp_f < 80 %}
+          [255, 165, 0]
+        {% elif temp_f < 90 %}
+          [255, 69, 0]
+        {% elif temp_f < 100 %}
+          [255, 0, 0]
+        {% else %}
+          [139, 0, 0]
+        {% endif %}
+
   - service: light.turn_on
     target:
-      entity_id: !input light_entity
-  - service: notify.mobile_app_pixel_6
+      entity_id: "{{ light_entity }}"
     data:
-      message: "Light turned on at {{ current_time }}"
+      rgb_color: "{{ rgb_color }}"
+
+  - service: "{{ notify_device }}"
+    data:
+      message: "🌡️ Forecast high: {{ temp_f }}°F — Light color set to {{ rgb_color }} at {{ current_time }}"
+

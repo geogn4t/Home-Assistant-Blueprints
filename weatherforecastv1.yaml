@@ -1,7 +1,8 @@
 blueprint:
   name: Scheduled Light On with Weather Forecast
   description: >
-    Turns on a light with a color based on the forecasted high temp at a specified time.
+    Turns on a light with a color based on forecasted high temp at a specified time.
+    Blinks the light if precipitation chance exceeds a set threshold.
     Sends a notification with the forecasted temperature and selected light color.
   domain: automation
   input:
@@ -39,7 +40,16 @@ blueprint:
       default: notify.mobile_app_pixel_6
       selector:
         text:
-
+    precip_threshold:
+      name: Precipitation Threshold
+      description: Percentage chance to trigger blinking
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+          step: 1
 
 trigger:
   - platform: time
@@ -51,6 +61,7 @@ variables:
   forecast_day: !input forecast_day
   light_entity: !input light_entity
   notify_device: !input notify_device
+  precip_threshold: !input precip_threshold
 
 action:
   - service: weather.get_forecasts
@@ -61,8 +72,9 @@ action:
     response_variable: forecast_data
 
   - variables:
-      temp_f: >
-        {{ forecast_data[weather_entity].forecast[forecast_day].temperature | float(0) }}
+      forecast: "{{ forecast_data[weather_entity].forecast[forecast_day] }}"
+      temp_f: "{{ forecast.temperature | float(0) }}"
+      precipitation: "{{ forecast.precipitation_probability | float(0) }}"
       rgb_color: >
         {% if temp_f < 0 %}
           [128, 0, 128]
@@ -90,15 +102,35 @@ action:
           [139, 0, 0]
         {% endif %}
 
-  - service: light.turn_on
-    target:
-      entity_id: "{{ light_entity }}"
-    data:
-      rgb_color: "{{ rgb_color }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ precipitation >= precip_threshold }}"
+        sequence:
+          - repeat:
+              count: 3
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ light_entity }}"
+                  data:
+                    rgb_color: "{{ rgb_color }}"
+                    brightness: 255
+                - delay: "00:00:01"
+                - service: light.turn_off
+                  target:
+                    entity_id: "{{ light_entity }}"
+                - delay: "00:00:01"
+    default:
+      - service: light.turn_on
+        target:
+          entity_id: "{{ light_entity }}"
+        data:
+          rgb_color: "{{ rgb_color }}"
+          brightness: 255
 
   - service: "{{ notify_device }}"
     data:
-      message: "🌡️ Forecast high: {{ temp_f }}°F — Light color set to {{ rgb_color }} at {{ current_time }}"
+      message: "🌡️ Forecast high: {{ temp_f }}°F — Light color: {{ rgb_color }} | Precipitation: {{ precipitation }}% at {{ current_time }}"
 
 mode: single
-

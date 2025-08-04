@@ -1,0 +1,183 @@
+blueprint:
+  name: Scheduled Light On with Weather Forecast (Breathing)
+  description: >
+    Turns on a light with a color based on forecasted high temp at a specified time.
+    Simulates breathing effect if precipitation chance exceeds a set threshold.
+    Sends a notification with the forecasted temperature and selected light color.
+  domain: automation
+  input:
+    trigger_time:
+      name: Trigger Time
+      description: Time to run this automation
+      default: "08:00:00"
+      selector:
+        time:
+    light_entity:
+      name: Light Entity
+      description: The light to control
+      selector:
+        entity:
+          domain: light
+    weather_entity:
+      name: Weather Entity
+      description: Weather entity that supports forecast
+      selector:
+        entity:
+          domain: weather
+    forecast_day:
+      name: Forecast Day
+      description: 0 = today, 1 = tomorrow
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1
+          mode: slider
+          step: 1
+    notify_device:
+      name: Notification Service
+      description: Enter a valid notify service (e.g., notify.mobile_app_pixel_6)
+      default: notify.mobile_app_pixel_6
+      selector:
+        text:
+    precip_threshold:
+      name: Precipitation Threshold
+      description: Percentage chance to trigger breathing effect
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 100
+          unit_of_measurement: "%"
+          step: 1
+    precipitation_entity:
+      name: Precipitation Forecast Entity
+      description: Entity with precipitation probability (optional)
+      default: ""
+      selector:
+        entity:
+          domain: sensor
+    debug_precip_override:
+      name: Debug Precip Override
+      description: Force a value for precipitation percent (set to -1 to disable)
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 100
+          unit_of_measurement: "%"
+          step: 1
+    blink_delay:
+      name: Breathing Cycle Speed (Seconds)
+      description: Speed of brightness transition up/down
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          unit_of_measurement: seconds
+          step: 1
+
+trigger:
+  - platform: time
+    at: !input trigger_time
+
+variables:
+  current_time: "{{ now().strftime('%I:%M %p') }}"
+  weather_entity: !input weather_entity
+  forecast_day: !input forecast_day
+  light_entity: !input light_entity
+  notify_device: !input notify_device
+  precip_threshold: !input precip_threshold
+  precipitation_entity: !input precipitation_entity
+  debug_precip_override: !input debug_precip_override
+  blink_delay: !input blink_delay
+
+action:
+  - service: weather.get_forecasts
+    data:
+      type: daily
+    target:
+      entity_id: "{{ weather_entity }}"
+    response_variable: forecast_data
+
+  - variables:
+      forecast: "{{ forecast_data[weather_entity].forecast[forecast_day] }}"
+      temp_f: "{{ forecast.temperature | float(0) }}"
+      actual_precip: >
+        {% if debug_precip_override | int(-1) >= 0 %}
+          {{ debug_precip_override | int }}
+        {% elif precipitation_entity != "" and states(precipitation_entity) not in ['unknown', 'unavailable'] %}
+          {{ states(precipitation_entity) | float(0) }}
+        {% elif 'precipitation_probability' in forecast %}
+          {{ forecast.precipitation_probability | float(0) }}
+        {% else %}
+          0
+        {% endif %}
+      rgb_color: >
+        {% if temp_f < 0 %}
+          [128, 0, 128]
+        {% elif temp_f < 10 %}
+          [75, 0, 130]
+        {% elif temp_f < 20 %}
+          [0, 0, 255]
+        {% elif temp_f < 30 %}
+          [0, 128, 255]
+        {% elif temp_f < 40 %}
+          [0, 255, 255]
+        {% elif temp_f < 50 %}
+          [0, 255, 128]
+        {% elif temp_f < 60 %}
+          [0, 255, 0]
+        {% elif temp_f < 70 %}
+          [255, 255, 0]
+        {% elif temp_f < 80 %}
+          [255, 165, 0]
+        {% elif temp_f < 90 %}
+          [255, 69, 0]
+        {% elif temp_f < 100 %}
+          [255, 0, 0]
+        {% else %}
+          [139, 0, 0]
+        {% endif %}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ actual_precip >= precip_threshold }}"
+        sequence:
+          - repeat:
+              count: "{{ (300 // (blink_delay * 2)) | int }}"
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ light_entity }}"
+                  data:
+                    rgb_color: "{{ rgb_color }}"
+                    brightness: 80
+                    transition: "{{ blink_delay }}"
+                - delay:
+                    seconds: "{{ blink_delay }}"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ light_entity }}"
+                  data:
+                    rgb_color: "{{ rgb_color }}"
+                    brightness: 255
+                    transition: "{{ blink_delay }}"
+                - delay:
+                    seconds: "{{ blink_delay }}"
+  # After breathing loop, set final color
+  - service: light.turn_on
+    target:
+      entity_id: "{{ light_entity }}"
+    data:
+      rgb_color: "{{ rgb_color }}"
+      brightness: 255
+      transition: 0
+
+  - service: "{{ notify_device }}"
+    data:
+      message: "🌡️ Forecast high: {{ temp_f }}°F — Final Light color: {{ rgb_color }} | Precip: {{ actual_precip }}% at {{ current_time }}"
+
+mode: single

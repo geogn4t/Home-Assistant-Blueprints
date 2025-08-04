@@ -1,0 +1,32 @@
+blueprint:
+  name: Scheduled Light On with Notification
+  description: >
+    Turns on a user-defined light and sends a notification at a set time.
+  domain: automation
+  input:
+    trigger_time:
+      name: Trigger Time
+      description: Time to run this automation
+      default: "08:00:00"
+      selector:
+        time:
+    light_entity:
+      name: Light Entity
+      description: The light to turn on
+      selector:
+        entity:
+          domain: light
+
+trigger:
+  - platform: time
+    at: !input trigger_time
+
+action:
+  - service: light.turn_on
+    target:
+      entity_id: !input light_entity
+  - service: notify.mobile_app_pixel_6
+    data:
+      message: "Light turned on at !input trigger_time"
+
+mode: single

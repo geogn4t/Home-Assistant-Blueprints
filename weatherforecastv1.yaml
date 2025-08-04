@@ -34,11 +34,12 @@ blueprint:
           mode: slider
           step: 1
     notify_device:
-      name: Notification Device
-      description: Where to send a notification
+      name: Notification Service
+      description: Enter a valid notify service (e.g., notify.mobile_app_pixel_6)
+      default: notify.mobile_app_pixel_6
       selector:
-        entity:
-          domain: notify
+        text:
+
 
 trigger:
   - platform: time
@@ -100,3 +101,4 @@ action:
       message: "🌡️ Forecast high: {{ temp_f }}°F — Light color set to {{ rgb_color }} at {{ current_time }}"
 
 mode: single
+

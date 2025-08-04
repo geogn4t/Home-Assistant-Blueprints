@@ -2,6 +2,7 @@ blueprint:
   name: Scheduled Light On with Weather Forecast
   description: >
     Turns on a light with a color based on the forecasted high temp at a specified time.
+    Sends a notification with the forecasted temperature and selected light color.
   domain: automation
   input:
     trigger_time:
@@ -98,4 +99,4 @@ action:
     data:
       message: "🌡️ Forecast high: {{ temp_f }}°F — Light color set to {{ rgb_color }} at {{ current_time }}"
 
-
+mode: single

@@ -1,0 +1,119 @@
+blueprint:
+  name: Pico Remote - Full Control with Scene on Center Button
+  description: >
+    Control a light group using a Lutron Pico remote:
+    - Raise/Lower adjusts brightness of only the bulbs that are ON
+    - Top button sets all bulbs to full brightness
+    - Bottom button turns all bulbs OFF
+    - Center (button 3) activates a user-defined scene
+  domain: automation
+  input:
+    pico_device:
+      name: Pico Remote
+      description: Select the Pico remote device
+      selector:
+        device:
+          integration: lutron_caseta
+    light_group:
+      name: Light Group
+      description: Select the light group containing the bulbs
+      selector:
+        entity:
+          domain: light
+    brightness_step:
+      name: Brightness Step (%)
+      description: How much to increase or decrease brightness per press
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+    scene_entity:
+      name: Scene for Center Button
+      description: Scene to activate when center button is pressed
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+trigger:
+  - platform: device
+    domain: lutron_caseta
+    device_id: !input pico_device
+    type: press
+    subtype: raise
+  - platform: device
+    domain: lutron_caseta
+    device_id: !input pico_device
+    type: press
+    subtype: lower
+  - platform: device
+    domain: lutron_caseta
+    device_id: !input pico_device
+    type: press
+    subtype: on
+  - platform: device
+    domain: lutron_caseta
+    device_id: !input pico_device
+    type: press
+    subtype: off
+  - platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      button_number: 3
+      action: press
+
+variables:
+  bulbs: "{{ state_attr((!input light_group), 'entity_id') }}"
+  brightness_step: >
+    {% if trigger is defined and trigger.subtype == 'raise' %}
+      {{ !input brightness_step }}
+    {% elif trigger is defined and trigger.subtype == 'lower' %}
+      {{ -1 * (!input brightness_step) }}
+    {% else %}
+      0
+    {% endif %}
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger is defined and trigger.subtype == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: "{{ bulbs }}"
+            data:
+              brightness: 255
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger is defined and trigger.subtype == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: "{{ bulbs }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger is defined and trigger.subtype in ['raise', 'lower'] }}"
+        sequence:
+          - repeat:
+              for_each: "{{ bulbs }}"
+              sequence:
+                - condition: template
+                  value_template: "{{ is_state(repeat.item, 'on') }}"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    brightness_step_pct: "{{ brightness_step }}"
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger is not defined and trigger.event.data.button_number == 3 }}"
+        sequence:
+          - service: scene.turn_on
+            target:
+              entity_id: !input scene_entity
+
+mode: single

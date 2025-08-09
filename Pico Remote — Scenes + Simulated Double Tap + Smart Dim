@@ -83,14 +83,14 @@ trigger:
     domain: lutron_caseta
     device_id: !input pico_device
     type: press
-    subtype: on
+    subtype: "on"
 
   - id: bottom_press
     platform: device
     domain: lutron_caseta
     device_id: !input pico_device
     type: press
-    subtype: off
+    subtype: "off"
 
   - id: raise_press
     platform: device

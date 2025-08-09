@@ -1,139 +1,21 @@
 blueprint:
-  name: Pico Remote — Scenes + Simulated Double Tap + Smart Dim (Trigger IDs)
+  name: Pico Remote — Scenes + Simulated Double Tap + Smart Dim (button_number)
   description: >
-    Lutron Pico remote:
-      • Top: 1× = Bright Scene, 2× within window = Full Brightness
-      • Bottom: 1× = Dim Scene, 2× within window = All Off
-      • Raise/Lower: adjust brightness only for bulbs that are ON
-      • Center (button 3 event): Center Scene
-    Uses input_booleans to detect double taps; trigger IDs for robust routing.
+    Lutron Pico via lutron_caseta_button_event (button_number mapping):
+      • Top (2): 1× = Bright Scene, 2× within window = Full Brightness
+      • Bottom (4): 1× = Dim Scene, 2× within window = All Off
+      • Raise (5) / Lower (6): adjust brightness only for bulbs that are ON
+      • Center (3): Center Scene
+    Uses input_booleans to detect double taps; event triggers match on device_id + button_number.
   domain: automation
 
   input:
-    pico_device:
-      name: Pico Remote
+    pico_device_id:
+      name: Pico device_id (from event)
+      description: Paste from event data (e.g., 54efbd2d81feef1f11c34e725080a5f4)
       selector:
-        device:
-          integration: lutron_caseta
+        text:
 
     light_group:
       name: Light Group or Light
-      selector:
-        entity:
-          domain: light
-
-    brightness_step:
-      name: Brightness Step (%)
-      default: 25
-      selector:
-        number:
-          min: 1
-          max: 100
-          step: 1
-          unit_of_measurement: "%"
-
-    bright_scene:
-      name: Bright Scene (Top single)
-      default: ""
-      selector:
-        entity:
-          domain: scene
-
-    dim_scene:
-      name: Dim Scene (Bottom single)
-      default: ""
-      selector:
-        entity:
-          domain: scene
-
-    center_scene:
-      name: Center Button Scene
-      default: ""
-      selector:
-        entity:
-          domain: scene
-
-    double_tap_timer:
-      name: Double-Tap Window (seconds)
-      default: 2
-      selector:
-        number:
-          min: 1
-          max: 5
-          step: 1
-          unit_of_measurement: s
-
-    double_tap_flag_top:
-      name: Double-Tap Helper (Top)
-      description: input_boolean to track top first press
-      selector:
-        entity:
-          domain: input_boolean
-
-    double_tap_flag_bottom:
-      name: Double-Tap Helper (Bottom)
-      description: input_boolean to track bottom first press
-      selector:
-        entity:
-          domain: input_boolean
-
-trigger:
-  - id: top_press
-    platform: device
-    domain: lutron_caseta
-    device_id: !input pico_device
-    type: press
-    subtype: "on"
-
-  - id: bottom_press
-    platform: device
-    domain: lutron_caseta
-    device_id: !input pico_device
-    type: press
-    subtype: "off"
-
-  - id: raise_press
-    platform: device
-    domain: lutron_caseta
-    device_id: !input pico_device
-    type: press
-    subtype: raise
-
-  - id: lower_press
-    platform: device
-    domain: lutron_caseta
-    device_id: !input pico_device
-    type: press
-    subtype: lower
-
-  # Center button is an event
-  - id: center_event
-    platform: event
-    event_type: lutron_caseta_button_event
-    event_data:
-      button_number: 3
-      action: press
-
-variables:
-  group_entity: !input light_group
-  bulbs: "{{ expand(group_entity) | map(attribute='entity_id') | list }}"
-  step_input: !input brightness_step
-  bright_scene: !input bright_scene
-  dim_scene: !input dim_scene
-  center_scene: !input center_scene
-  double_tap_timer: !input double_tap_timer
-  flag_top: !input double_tap_flag_top
-  flag_bottom: !input double_tap_flag_bottom
-
-mode: parallel
-max: 4
-
-action:
-  - choose:
-      # ── TOP BUTTON ─────────────────────────────────────────
-      - conditions:
-          - condition: trigger
-            id: top_press
-        sequence:
-          - choose:
-              # Second press within window →
+      description: Group of bulbs to control (can be a light group or

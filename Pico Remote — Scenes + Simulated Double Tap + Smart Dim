@@ -18,4 +18,248 @@ blueprint:
 
     light_group:
       name: Light Group or Light
-      description: Group of bulbs to control (can be a light group or
+      description: Group of bulbs to control (can be a light group or a single light)
+      selector:
+        entity:
+          domain: light
+
+    brightness_step:
+      name: Brightness Step (%)
+      description: Amount per raise/lower press
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    bright_scene:
+      name: Bright Scene (Top single)
+      description: Scene to activate on single press of top button
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    dim_scene:
+      name: Dim Scene (Bottom single)
+      description: Scene to activate on single press of bottom button
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    center_scene:
+      name: Center Button Scene
+      description: Scene to activate when center (button 3) is pressed
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    double_tap_timer:
+      name: Double-Tap Window (seconds)
+      description: Time window to consider a second press a "double tap"
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 5
+          step: 1
+          unit_of_measurement: s
+
+    double_tap_flag_top:
+      name: Double-Tap Helper (Top)
+      description: input_boolean to track top first press
+      selector:
+        entity:
+          domain: input_boolean
+
+    double_tap_flag_bottom:
+      name: Double-Tap Helper (Bottom)
+      description: input_boolean to track bottom first press
+      selector:
+        entity:
+          domain: input_boolean
+
+# Event-based triggers (button_number mapping)
+trigger:
+  - id: top_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 2
+      action: press
+
+  - id: bottom_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 4
+      action: press
+
+  - id: raise_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 5
+      action: press
+
+  - id: lower_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 6
+      action: press
+
+  - id: center_event
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 3
+      action: press
+
+variables:
+  group_entity: !input light_group
+  bulbs: "{{ expand(group_entity) | map(attribute='entity_id') | list }}"
+  step_input: !input brightness_step
+  bright_scene: !input bright_scene
+  dim_scene: !input dim_scene
+  center_scene: !input center_scene
+  double_tap_timer: !input double_tap_timer
+  flag_top: !input double_tap_flag_top
+  flag_bottom: !input double_tap_flag_bottom
+
+mode: parallel
+max: 4
+
+action:
+  - choose:
+      # ── TOP BUTTON (single vs double) ───────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: top_press
+        sequence:
+          - choose:
+              # Second press within window → double tap
+              - conditions:
+                  - condition: state
+                    entity_id: "{{ flag_top }}"
+                    state: "on"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ flag_top }}"
+                  - service: light.turn_on
+                    target:
+                      entity_id: "{{ bulbs }}"
+                    data:
+                      brightness: 255
+              # First press → set flag, run scene (optional), clear after timer
+              - conditions:
+                  - condition: state
+                    entity_id: "{{ flag_top }}"
+                    state: "off"
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: "{{ flag_top }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ bright_scene | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ bright_scene }}"
+                  - delay:
+                      seconds: "{{ double_tap_timer }}"
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ flag_top }}"
+
+      # ── BOTTOM BUTTON (single vs double) ────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: bottom_press
+        sequence:
+          - choose:
+              # Second press within window → double tap (all off)
+              - conditions:
+                  - condition: state
+                    entity_id: "{{ flag_bottom }}"
+                    state: "on"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ flag_bottom }}"
+                  - service: light.turn_off
+                    target:
+                      entity_id: "{{ bulbs }}"
+              # First press → set flag, run scene (optional), clear after timer
+              - conditions:
+                  - condition: state
+                    entity_id: "{{ flag_bottom }}"
+                    state: "off"
+                sequence:
+                  - service: input_boolean.turn_on
+                    target:
+                      entity_id: "{{ flag_bottom }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ dim_scene | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ dim_scene }}"
+                  - delay:
+                      seconds: "{{ double_tap_timer }}"
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ flag_bottom }}"
+
+      # ── RAISE / LOWER (only adjust lights that are already on) ─────────────
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: raise_press
+              - condition: trigger
+                id: lower_press
+        sequence:
+          - variables:
+              step_value: >
+                {% if trigger.id == 'raise_press' %}{{ step_input }}
+                {% else %}{{ 0 - step_input }}
+                {% endif %}
+          - repeat:
+              for_each: "{{ bulbs }}"
+              sequence:
+                - condition: template
+                  value_template: "{{ is_state(repeat.item, 'on') }}"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    brightness_step_pct: "{{ step_value }}"
+
+      # ── CENTER BUTTON (event) ──────────────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: center_event
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ center_scene | length > 0 }}"
+                sequence:
+                  - service: scene.turn_on
+                    target:
+                      entity_id: "{{ center_scene }}"

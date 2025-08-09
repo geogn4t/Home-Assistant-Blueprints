@@ -12,13 +12,13 @@ blueprint:
   input:
     pico_device_id:
       name: Pico device_id (from event)
-      description: Paste from event data (e.g., 54efbd2d81feef1f11c34e725080a5f4)
+      description: Paste from your event data (e.g., 54efbd2d81feef1f11c34e725080a5f4)
       selector:
         text:
 
     light_group:
       name: Light Group or Light
-      description: Group of bulbs to control (can be a light group or a single light)
+      description: Group of bulbs to control (or a single light)
       selector:
         entity:
           domain: light
@@ -127,14 +127,13 @@ trigger:
 
 variables:
   group_entity: !input light_group
+  # expand() returns members of a group, or the single entity if it's not a group
   bulbs: "{{ expand(group_entity) | map(attribute='entity_id') | list }}"
   step_input: !input brightness_step
   bright_scene: !input bright_scene
   dim_scene: !input dim_scene
   center_scene: !input center_scene
   double_tap_timer: !input double_tap_timer
-  flag_top: !input double_tap_flag_top
-  flag_bottom: !input double_tap_flag_bottom
 
 mode: parallel
 max: 4
@@ -150,12 +149,12 @@ action:
               # Second press within window → double tap
               - conditions:
                   - condition: state
-                    entity_id: "{{ flag_top }}"
+                    entity_id: !input double_tap_flag_top
                     state: "on"
                 sequence:
                   - service: input_boolean.turn_off
                     target:
-                      entity_id: "{{ flag_top }}"
+                      entity_id: !input double_tap_flag_top
                   - service: light.turn_on
                     target:
                       entity_id: "{{ bulbs }}"
@@ -164,25 +163,25 @@ action:
               # First press → set flag, run scene (optional), clear after timer
               - conditions:
                   - condition: state
-                    entity_id: "{{ flag_top }}"
+                    entity_id: !input double_tap_flag_top
                     state: "off"
                 sequence:
                   - service: input_boolean.turn_on
                     target:
-                      entity_id: "{{ flag_top }}"
+                      entity_id: !input double_tap_flag_top
                   - choose:
                       - conditions:
                           - condition: template
-                            value_template: "{{ bright_scene | length > 0 }}"
+                            value_template: "{{ (bright_scene | string) | length > 0 }}"
                         sequence:
                           - service: scene.turn_on
                             target:
                               entity_id: "{{ bright_scene }}"
                   - delay:
-                      seconds: "{{ double_tap_timer }}"
+                      seconds: !input double_tap_timer
                   - service: input_boolean.turn_off
                     target:
-                      entity_id: "{{ flag_top }}"
+                      entity_id: !input double_tap_flag_top
 
       # ── BOTTOM BUTTON (single vs double) ────────────────────────────────────
       - conditions:
@@ -193,37 +192,37 @@ action:
               # Second press within window → double tap (all off)
               - conditions:
                   - condition: state
-                    entity_id: "{{ flag_bottom }}"
+                    entity_id: !input double_tap_flag_bottom
                     state: "on"
                 sequence:
                   - service: input_boolean.turn_off
                     target:
-                      entity_id: "{{ flag_bottom }}"
+                      entity_id: !input double_tap_flag_bottom
                   - service: light.turn_off
                     target:
                       entity_id: "{{ bulbs }}"
               # First press → set flag, run scene (optional), clear after timer
               - conditions:
                   - condition: state
-                    entity_id: "{{ flag_bottom }}"
+                    entity_id: !input double_tap_flag_bottom
                     state: "off"
                 sequence:
                   - service: input_boolean.turn_on
                     target:
-                      entity_id: "{{ flag_bottom }}"
+                      entity_id: !input double_tap_flag_bottom
                   - choose:
                       - conditions:
                           - condition: template
-                            value_template: "{{ dim_scene | length > 0 }}"
+                            value_template: "{{ (dim_scene | string) | length > 0 }}"
                         sequence:
                           - service: scene.turn_on
                             target:
                               entity_id: "{{ dim_scene }}"
                   - delay:
-                      seconds: "{{ double_tap_timer }}"
+                      seconds: !input double_tap_timer
                   - service: input_boolean.turn_off
                     target:
-                      entity_id: "{{ flag_bottom }}"
+                      entity_id: !input double_tap_flag_bottom
 
       # ── RAISE / LOWER (only adjust lights that are already on) ─────────────
       - conditions:
@@ -236,8 +235,10 @@ action:
         sequence:
           - variables:
               step_value: >
-                {% if trigger.id == 'raise_press' %}{{ step_input }}
-                {% else %}{{ 0 - step_input }}
+                {% if trigger.id == 'raise_press' %}
+                  {{ step_input }}
+                {% else %}
+                  {{ 0 - step_input }}
                 {% endif %}
           - repeat:
               for_each: "{{ bulbs }}"
@@ -258,7 +259,7 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ center_scene | length > 0 }}"
+                    value_template: "{{ (center_scene | string) | length > 0 }}"
                 sequence:
                   - service: scene.turn_on
                     target:

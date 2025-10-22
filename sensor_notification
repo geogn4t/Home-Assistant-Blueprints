@@ -1,14 +1,13 @@
 blueprint:
-  name: "Notify when sensor drops below threshold (multi-person)"
+  name: "Notify when sensor drops below threshold (select notify targets)"
   description: >
-    Sends a push notification to selected people when a numeric sensor
-    goes below a specified threshold. Automatically sends to each person's
-    active mobile app device(s). Includes a custom message field.
+    Sends a push notification to selected devices when a numeric sensor
+    goes below a specified threshold. Includes custom message support.
   domain: automation
   input:
     target_sensor:
       name: Sensor
-      description: Select the sensor to monitor.
+      description: Select the numeric sensor to monitor.
       selector:
         entity:
           domain: sensor
@@ -31,13 +30,13 @@ blueprint:
       selector:
         text:
 
-    notify_persons:
-      name: People to Notify
-      description: Select one or more people to receive the notification.
+    notify_targets:
+      name: Notify Devices
+      description: Select one or more mobile app notify targets.
       selector:
         entity:
-          domain: person
           multiple: true
+          domain: notify
 
 mode: single
 
@@ -51,41 +50,16 @@ variables:
   custom_message: !input custom_message
   sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
   sensor_value: "{{ states(trigger.entity_id) }}"
-  notify_persons: !input notify_persons
+  notify_targets: !input notify_targets
 
 action:
   - repeat:
-      for_each: "{{ notify_persons }}"
+      for_each: "{{ notify_targets }}"
       sequence:
-        - variables:
-            person_entity: "{{ repeat.item }}"
-            # Collect the person's related mobile_app notify targets
-            notify_services: >
-              {% set ns = namespace(services=[]) %}
-              {% for s in integration_entities('mobile_app')
-                   if s.startswith('notify.mobile_app_') %}
-                {% set person = s | regex_replace('^notify\\.mobile_app_', '') %}
-                {% if person_entity.split('.')[-1] in person %}
-                  {% set ns.services = ns.services + [s] %}
-                {% endif %}
-              {% endfor %}
-              {{ ns.services }}
-        - choose:
-            - conditions: "{{ notify_services | count > 0 }}"
-              sequence:
-                - repeat:
-                    for_each: "{{ notify_services }}"
-                    sequence:
-                      - service: "{{ repeat.item }}"
-                        data:
-                          title: "⚠️ Sensor Alert"
-                          message: >
-                            {{ sensor_name }} dropped below {{ threshold }}%
-                            (currently {{ sensor_value }}%).
-                            {{ custom_message }}
-          default:
-            - service: system_log.write
-              data:
-                level: warning
-                message: >
-                  No notify.mobile_app_* service found for {{ person_entity }}.
+        - service: "{{ repeat.item }}"
+          data:
+            title: "⚠️ Sensor Alert"
+            message: >
+              {{ sensor_name }} dropped below {{ threshold }}%
+              (currently {{ sensor_value }}%).
+              {{ custom_message }}

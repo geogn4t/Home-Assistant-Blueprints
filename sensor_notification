@@ -1,0 +1,64 @@
+blueprint:
+  name: "Notify when sensor drops below threshold"
+  description: >
+    Sends a notification to selected people when a numeric sensor
+    goes below a specified threshold. Includes custom message support.
+  domain: automation
+  input:
+    target_sensor:
+      name: Sensor
+      description: Select the sensor to monitor
+      selector:
+        entity:
+          domain: sensor
+
+    threshold:
+      name: Threshold
+      description: Notify when the sensor value drops below this number
+      default: 30
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    custom_message:
+      name: Custom Message
+      description: Add a message to include with the notification
+      default: "Please check this device soon."
+      selector:
+        text:
+
+    notify_persons:
+      name: People to Notify
+      description: Select one or more people to receive the notification
+      selector:
+        target:
+          entity:
+            domain: person
+
+mode: single
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input target_sensor
+    below: !input threshold
+
+action:
+  - variables:
+      sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
+      sensor_value: "{{ states(trigger.entity_id) }}"
+      custom_message: !input custom_message
+      threshold: !input threshold
+
+  - repeat:
+      for_each: !input notify_persons
+      sequence:
+        - service: notify.{{ state_attr(repeat.item, 'notify') if state_attr(repeat.item, 'notify') else repeat.item.split('.')[1] }}
+          data:
+            title: "⚠️ Sensor Alert"
+            message: >
+              {{ sensor_name }} dropped below {{ threshold }}%
+              (currently {{ sensor_value }}%).
+              {{ custom_message }}

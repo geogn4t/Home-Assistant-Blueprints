@@ -1,20 +1,21 @@
 blueprint:
-  name: "Notify when sensor drops below threshold"
+  name: "Notify when sensor drops below threshold (multi-person)"
   description: >
-    Sends a notification to selected people when a numeric sensor
-    goes below a specified threshold. Includes custom message support.
+    Sends a push notification to selected people when a numeric sensor
+    goes below a specified threshold. Automatically sends to each person's
+    active mobile app device(s). Includes a custom message field.
   domain: automation
   input:
     target_sensor:
       name: Sensor
-      description: Select the sensor to monitor
+      description: Select the sensor to monitor.
       selector:
         entity:
           domain: sensor
 
     threshold:
       name: Threshold
-      description: Notify when the sensor value drops below this number
+      description: Notify when the sensor value drops below this number.
       default: 30
       selector:
         number:
@@ -25,18 +26,18 @@ blueprint:
 
     custom_message:
       name: Custom Message
-      description: Add a message to include with the notification
+      description: Add a message to include with the notification.
       default: "Please check this device soon."
       selector:
         text:
 
     notify_persons:
       name: People to Notify
-      description: Select one or more people to receive the notification
+      description: Select one or more people to receive the notification.
       selector:
-        target:
-          entity:
-            domain: person
+        entity:
+          domain: person
+          multiple: true
 
 mode: single
 
@@ -45,20 +46,30 @@ trigger:
     entity_id: !input target_sensor
     below: !input threshold
 
-action:
-  - variables:
-      sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
-      sensor_value: "{{ states(trigger.entity_id) }}"
-      custom_message: !input custom_message
-      threshold: !input threshold
+variables:
+  threshold: !input threshold
+  custom_message: !input custom_message
+  sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
+  sensor_value: "{{ states(trigger.entity_id) }}"
 
+action:
   - repeat:
       for_each: !input notify_persons
       sequence:
-        - service: notify.{{ state_attr(repeat.item, 'notify') if state_attr(repeat.item, 'notify') else repeat.item.split('.')[1] }}
-          data:
-            title: "⚠️ Sensor Alert"
-            message: >
-              {{ sensor_name }} dropped below {{ threshold }}%
-              (currently {{ sensor_value }}%).
-              {{ custom_message }}
+        - variables:
+            person_entity: "{{ repeat.item }}"
+            device_list: >
+              {% set devices = expand(person_entity)
+                   | selectattr('domain', 'eq', 'device_tracker')
+                   | map(attribute='entity_id')
+                   | list %}
+              {% set mobile_devices = devices
+                   | map('replace', 'device_tracker.', 'notify.mobile_app_')
+                   | select('in', integration_entities('mobile_app'))
+                   | list %}
+              {{ mobile_devices }}
+        - if:
+            - condition: template
+              value_template: "{{ device_list | count > 0 }}"
+          then:
+            - repe

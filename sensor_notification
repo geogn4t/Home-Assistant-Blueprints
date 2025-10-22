@@ -37,7 +37,6 @@ blueprint:
         target:
           device:
             integration: mobile_app
-          multiple: true
 
     cooldown_minutes:
       name: Cooldown (minutes)

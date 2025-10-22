@@ -51,25 +51,41 @@ variables:
   custom_message: !input custom_message
   sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
   sensor_value: "{{ states(trigger.entity_id) }}"
+  notify_persons: !input notify_persons
 
 action:
   - repeat:
-      for_each: !input notify_persons
+      for_each: "{{ notify_persons }}"
       sequence:
         - variables:
             person_entity: "{{ repeat.item }}"
-            device_list: >
-              {% set devices = expand(person_entity)
-                   | selectattr('domain', 'eq', 'device_tracker')
-                   | map(attribute='entity_id')
-                   | list %}
-              {% set mobile_devices = devices
-                   | map('replace', 'device_tracker.', 'notify.mobile_app_')
-                   | select('in', integration_entities('mobile_app'))
-                   | list %}
-              {{ mobile_devices }}
-        - if:
-            - condition: template
-              value_template: "{{ device_list | count > 0 }}"
-          then:
-            - repe
+            # Collect the person's related mobile_app notify targets
+            notify_services: >
+              {% set ns = namespace(services=[]) %}
+              {% for s in integration_entities('mobile_app')
+                   if s.startswith('notify.mobile_app_') %}
+                {% set person = s | regex_replace('^notify\\.mobile_app_', '') %}
+                {% if person_entity.split('.')[-1] in person %}
+                  {% set ns.services = ns.services + [s] %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.services }}
+        - choose:
+            - conditions: "{{ notify_services | count > 0 }}"
+              sequence:
+                - repeat:
+                    for_each: "{{ notify_services }}"
+                    sequence:
+                      - service: "{{ repeat.item }}"
+                        data:
+                          title: "⚠️ Sensor Alert"
+                          message: >
+                            {{ sensor_name }} dropped below {{ threshold }}%
+                            (currently {{ sensor_value }}%).
+                            {{ custom_message }}
+          default:
+            - service: system_log.write
+              data:
+                level: warning
+                message: >
+                  No notify.mobile_app_* service found for {{ person_entity }}.

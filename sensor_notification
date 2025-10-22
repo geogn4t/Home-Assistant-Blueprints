@@ -1,8 +1,8 @@
 blueprint:
-  name: "Notify when sensor drops below threshold (select notify targets)"
+  name: "Notify when sensor drops below threshold (optional cooldown)"
   description: >
-    Sends a push notification to selected devices when a numeric sensor
-    goes below a specified threshold. Includes custom message support.
+    Sends a push notification to selected mobile app devices when a numeric sensor
+    goes below a specified threshold. Includes custom message support and an optional cooldown timer.
   domain: automation
   input:
     target_sensor:
@@ -31,12 +31,24 @@ blueprint:
         text:
 
     notify_targets:
-      name: Notify Devices
-      description: Select one or more mobile app notify targets.
+      name: Notify Targets
+      description: Select one or more mobile app devices to receive the notification.
       selector:
-        entity:
+        target:
+          device:
+            integration: mobile_app
           multiple: true
-          domain: notify
+
+    cooldown_minutes:
+      name: Cooldown (minutes)
+      description: Optional cooldown period before another notification can be sent.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 1440
+          step: 5
+          unit_of_measurement: "min"
 
 mode: single
 
@@ -50,16 +62,27 @@ variables:
   custom_message: !input custom_message
   sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
   sensor_value: "{{ states(trigger.entity_id) }}"
+  cooldown: !input cooldown_minutes
   notify_targets: !input notify_targets
+  last_triggered: "{{ state_attr(this.entity_id, 'last_triggered') }}"
+
+condition:
+  - condition: template
+    value_template: >
+      {% if cooldown | int(0) == 0 %}
+        true
+      {% else %}
+        {% set last = as_timestamp(last_triggered) %}
+        {% set now = as_timestamp(now()) %}
+        {{ (now - last) > (cooldown | int(0) * 60) }}
+      {% endif %}
 
 action:
-  - repeat:
-      for_each: "{{ notify_targets }}"
-      sequence:
-        - service: "{{ repeat.item }}"
-          data:
-            title: "⚠️ Sensor Alert"
-            message: >
-              {{ sensor_name }} dropped below {{ threshold }}%
-              (currently {{ sensor_value }}%).
-              {{ custom_message }}
+  - service: notify.send_message
+    target: !input notify_targets
+    data:
+      title: "⚠️ Sensor Alert"
+      message: >
+        {{ sensor_name }} dropped below {{ threshold }}%
+        (currently {{ sensor_value }}%).
+        {{ custom_message }}

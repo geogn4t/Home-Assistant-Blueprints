@@ -30,13 +30,13 @@ blueprint:
       selector:
         text:
 
-    notify_targets:
-      name: Notify Targets
-      description: Select one or more mobile app devices to receive the notification.
+    notify_devices:
+      name: Notify Devices
+      description: Select one or more mobile-app devices to receive the push notification.
       selector:
-        target:
-          device:
-            integration: mobile_app
+        device:
+          integration: mobile_app
+          multiple: true
 
     cooldown_minutes:
       name: Cooldown (minutes)
@@ -62,7 +62,6 @@ variables:
   sensor_name: "{{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }}"
   sensor_value: "{{ states(trigger.entity_id) }}"
   cooldown: !input cooldown_minutes
-  notify_targets: !input notify_targets
   last_triggered: "{{ state_attr(this.entity_id, 'last_triggered') }}"
 
 condition:
@@ -77,11 +76,13 @@ condition:
       {% endif %}
 
 action:
-  - service: notify.send_message
-    target: !input notify_targets
-    data:
-      title: "⚠️ Sensor Alert"
-      message: >
-        {{ sensor_name }} dropped below {{ threshold }}%
-        (currently {{ sensor_value }}%).
-        {{ custom_message }}
+  - repeat:
+      for_each: !input notify_devices
+      sequence:
+        - service: notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') }}
+          data:
+            title: "⚠️ Sensor Alert"
+            message: >
+              {{ sensor_name }} dropped below {{ threshold }}%
+              (currently {{ sensor_value }}%).
+              {{ custom_message }}

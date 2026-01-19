@@ -1,0 +1,303 @@
+blueprint:
+  name: Wake-up Light Ramp+ (weekday/weekend helpers, smooth transition, optional off time)
+  description: >
+    Sunrise-style wake-up lights using weekday/weekend input_datetime helpers.
+    Smooth (transition), optional warm->cool ramp, optional presence/vacation/skip gating,
+    and optional "turn off at time" behavior.
+  domain: automation
+
+  input:
+    light_target:
+      name: Light
+      selector:
+        target:
+          entity:
+            domain: light
+
+    weekday_time:
+      name: Weekday wake time (input_datetime)
+      selector:
+        entity:
+          domain: input_datetime
+
+    weekend_time:
+      name: Weekend wake time (input_datetime)
+      selector:
+        entity:
+          domain: input_datetime
+
+    enabled_boolean:
+      name: Enabled toggle (optional input_boolean)
+      description: If not set, automation always runs.
+      default: ""
+      selector:
+        entity:
+          domain: input_boolean
+
+    skip_next_boolean:
+      name: Skip next wake-up (optional input_boolean)
+      description: If on, the run is skipped and the boolean is turned off automatically.
+      default: ""
+      selector:
+        entity:
+          domain: input_boolean
+
+    presence_person:
+      name: Only run if person is home (optional person entity)
+      default: ""
+      selector:
+        entity:
+          domain: person
+
+    block_boolean:
+      name: Block if this boolean is on (optional input_boolean)
+      description: Use for vacation mode / do-not-disturb / etc.
+      default: ""
+      selector:
+        entity:
+          domain: input_boolean
+
+    ramp_minutes:
+      name: Ramp duration (minutes)
+      default: 45
+      selector:
+        number:
+          min: 5
+          max: 120
+          step: 1
+          mode: slider
+
+    start_brightness:
+      name: Start brightness (1-255)
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+          mode: slider
+
+    end_brightness:
+      name: End brightness (1-255)
+      default: 250
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+          mode: slider
+
+    transition_seconds:
+      name: Transition seconds (smooth fade)
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 1
+          mode: slider
+
+    use_color_temp_ramp:
+      name: Ramp color temperature too?
+      default: true
+      selector:
+        boolean: {}
+
+    start_color_temp_mired:
+      name: Start color temp (mireds, warm)
+      description: Higher mireds = warmer (e.g., 450).
+      default: 450
+      selector:
+        number:
+          min: 150
+          max: 500
+          step: 1
+          mode: slider
+
+    end_color_temp_mired:
+      name: End color temp (mireds, cooler)
+      description: Lower mireds = cooler (e.g., 300).
+      default: 300
+      selector:
+        number:
+          min: 150
+          max: 500
+          step: 1
+          mode: slider
+
+    turn_off_time:
+      name: Turn off at time (optional input_datetime)
+      description: If set, after the ramp finishes, wait until this time today and then turn the light off.
+      default: ""
+      selector:
+        entity:
+          domain: input_datetime
+
+mode: single
+
+trigger:
+  # Simple, reliable: check every minute and fire only when HH:MM matches.
+  - platform: time_pattern
+    minutes: "/1"
+
+variables:
+  is_weekend: "{{ now().weekday() >= 5 }}"  # 5=Sat, 6=Sun
+
+  chosen_time_entity: >-
+    {% if is_weekend %}
+      {{ weekend_time }}
+    {% else %}
+      {{ weekday_time }}
+    {% endif %}
+
+  chosen_hhmm: >-
+    {{ "%02d:%02d" | format(state_attr(chosen_time_entity, "hour"), state_attr(chosen_time_entity, "minute")) }}
+
+  now_hhmm: "{{ now().strftime('%H:%M') }}"
+
+  ramp_mins: "{{ ramp_minutes | int }}"
+  start_bri: "{{ start_brightness | int }}"
+  end_bri: "{{ end_brightness | int }}"
+  trans_s: "{{ transition_seconds | int }}"
+
+  use_ct: "{{ use_color_temp_ramp | bool }}"
+  start_ct: "{{ start_color_temp_mired | int }}"
+  end_ct: "{{ end_color_temp_mired | int }}"
+
+  enabled_ok: >-
+    {% if enabled_boolean == "" %}
+      true
+    {% else %}
+      {{ is_state(enabled_boolean, "on") }}
+    {% endif %}
+
+  skip_on: >-
+    {% if skip_next_boolean == "" %}
+      false
+    {% else %}
+      {{ is_state(skip_next_boolean, "on") }}
+    {% endif %}
+
+  person_ok: >-
+    {% if presence_person == "" %}
+      true
+    {% else %}
+      {{ is_state(presence_person, "home") }}
+    {% endif %}
+
+  blocked: >-
+    {% if block_boolean == "" %}
+      false
+    {% else %}
+      {{ is_state(block_boolean, "on") }}
+    {% endif %}
+
+  off_enabled: "{{ turn_off_time != '' }}"
+  off_hhmm: >-
+    {% if turn_off_time == "" %}
+      ""
+    {% else %}
+      {{ "%02d:%02d" | format(state_attr(turn_off_time, "hour"), state_attr(turn_off_time, "minute")) }}
+    {% endif %}
+
+condition:
+  - condition: template
+    value_template: "{{ now_hhmm == chosen_hhmm }}"
+  - condition: template
+    value_template: "{{ enabled_ok }}"
+  - condition: template
+    value_template: "{{ person_ok }}"
+  - condition: template
+    value_template: "{{ not blocked }}"
+
+action:
+  # If "skip next" is on, skip and reset it.
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ skip_on }}"
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ skip_next_boolean != '' }}"
+                sequence:
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: !input skip_next_boolean
+          - stop: "Skip-next was enabled; run skipped."
+
+  # Initial turn_on (dim + optional warm CT)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ use_ct }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light_target
+            data:
+              brightness: "{{ start_bri }}"
+              color_temp: "{{ start_ct }}"
+              transition: "{{ trans_s }}"
+    default:
+      - service: light.turn_on
+        target: !input light_target
+        data:
+          brightness: "{{ start_bri }}"
+          transition: "{{ trans_s }}"
+
+  # Ramp loop: compute brightness + (optional) CT from progress.
+  # Uses an ease-in curve (quadratic) so it starts gentle and feels more like sunrise.
+  - repeat:
+      count: "{{ ramp_mins }}"
+      sequence:
+        - delay:
+            minutes: 1
+        - variables:
+            # progress from 0..1 (repeat.index runs 1..ramp_mins)
+            p: "{{ repeat.index / (ramp_mins | float) }}"
+            # quadratic ease-in: starts slow, speeds up
+            e: "{{ (p * p) }}"
+            new_bri: >-
+              {% set val = start_bri + (end_bri - start_bri) * e %}
+              {{ [val | round(0) | int, end_bri] | min }}
+            new_ct: >-
+              {% set val = start_ct + (end_ct - start_ct) * e %}
+              {{ val | round(0) | int }}
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ use_ct }}"
+              sequence:
+                - service: light.turn_on
+                  target: !input light_target
+                  data:
+                    brightness: "{{ new_bri }}"
+                    color_temp: "{{ new_ct }}"
+                    transition: "{{ trans_s }}"
+          default:
+            - service: light.turn_on
+              target: !input light_target
+              data:
+                brightness: "{{ new_bri }}"
+                transition: "{{ trans_s }}"
+
+  # Optional end behavior: turn off at chosen time today (if it's still ahead).
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ off_enabled and off_hhmm != '' and off_hhmm > now_hhmm }}"
+        sequence:
+          - wait_template: "{{ now().strftime('%H:%M') == off_hhmm }}"
+            timeout:
+              hours: 18
+            continue_on_timeout: true
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ now().strftime('%H:%M') == off_hhmm }}"
+                sequence:
+                  - service: light.turn_off
+                    target: !input light_target
+                    data:
+                      transition: "{{ trans_s }}"

@@ -1,0 +1,203 @@
+blueprint:
+  name: Wake-up Light Ramp (weekday/weekend helpers, fixed color_temp, optional off time)
+  description: >
+    Sunrise-style wake-up lights using weekday/weekend input_datetime helpers.
+    Fixed color_temp, smooth transition, optional "turn off at time".
+    Stops ramp if the light is turned off manually or if the enabled toggle is turned off mid-run.
+  domain: automation
+
+  input:
+    light_entity:
+      name: Light (single light entity)
+      selector:
+        entity:
+          domain: light
+
+    weekday_time:
+      name: Weekday wake time (input_datetime)
+      selector:
+        entity:
+          domain: input_datetime
+
+    weekend_time:
+      name: Weekend wake time (input_datetime)
+      selector:
+        entity:
+          domain: input_datetime
+
+    enabled_boolean:
+      name: Enabled toggle (input_boolean)
+      selector:
+        entity:
+          domain: input_boolean
+
+    ramp_minutes:
+      name: Ramp duration (minutes)
+      default: 45
+      selector:
+        number:
+          min: 5
+          max: 120
+          step: 1
+          mode: slider
+
+    start_brightness:
+      name: Start brightness (1-255)
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+          mode: slider
+
+    end_brightness:
+      name: End brightness (1-255)
+      default: 250
+      selector:
+        number:
+          min: 1
+          max: 255
+          step: 1
+          mode: slider
+
+    color_temp_mired:
+      name: Color temp (mireds)
+      description: Fixed color temperature to apply during the whole ramp.
+      default: 340
+      selector:
+        number:
+          min: 150
+          max: 500
+          step: 1
+          mode: slider
+
+    transition_seconds:
+      name: Transition seconds (smooth fade)
+      default: 60
+      selector:
+        number:
+          min: 0
+          max: 120
+          step: 1
+          mode: slider
+
+    turn_off_time:
+      name: Turn off at time (optional input_datetime)
+      description: If set, after the ramp finishes, wait until this time today and then turn the light off.
+      default: ""
+      selector:
+        entity:
+          domain: input_datetime
+
+mode: single
+
+trigger:
+  - platform: time_pattern
+    minutes: "/1"
+
+variables:
+  light_entity: !input light_entity
+  weekday_time: !input weekday_time
+  weekend_time: !input weekend_time
+  enabled_boolean: !input enabled_boolean
+  turn_off_time: !input turn_off_time
+
+  ramp_mins: !input ramp_minutes
+  start_bri: !input start_brightness
+  end_bri: !input end_brightness
+  ct: !input color_temp_mired
+  trans_s: !input transition_seconds
+
+  is_weekend: "{{ now().weekday() >= 5 }}"
+
+  chosen_time_entity: >-
+    {% if is_weekend %}
+      {{ weekend_time }}
+    {% else %}
+      {{ weekday_time }}
+    {% endif %}
+
+  chosen_hhmm: >-
+    {% set h = state_attr(chosen_time_entity, 'hour') | int(0) %}
+    {% set m = state_attr(chosen_time_entity, 'minute') | int(0) %}
+    {{ "%02d:%02d" | format(h, m) }}
+
+  now_hhmm: "{{ now().strftime('%H:%M') }}"
+  off_enabled: "{{ turn_off_time != '' }}"
+
+condition:
+  - condition: template
+    value_template: "{{ now_hhmm == chosen_hhmm }}"
+  - condition: state
+    entity_id: !input enabled_boolean
+    state: "on"
+
+action:
+  # Initial turn_on (brightness + fixed color_temp)
+  - service: light.turn_on
+    target:
+      entity_id: "{{ light_entity }}"
+    data:
+      brightness: "{{ start_bri | int }}"
+      color_temp: "{{ ct | int }}"
+      transition: "{{ trans_s | int }}"
+
+  # Ramp loop (quadratic ease-in)
+  - repeat:
+      count: "{{ ramp_mins | int }}"
+      sequence:
+        - delay:
+            minutes: 1
+
+        # Stop if you turned the light off manually
+        - choose:
+            - conditions:
+                - condition: template
+                  value_template: "{{ states(light_entity) == 'off' }}"
+              sequence:
+                - stop: "Light turned off manually; stopping ramp."
+
+        # Stop if enabled was turned off mid-run
+        - choose:
+            - conditions:
+                - condition: state
+                  entity_id: !input enabled_boolean
+                  state: "off"
+              sequence:
+                - stop: "Disabled during ramp; stopping."
+
+        - variables:
+            p: "{{ repeat.index / (ramp_mins | float) }}"
+            e: "{{ p * p }}"
+            new_bri: >-
+              {% set val = start_bri + (end_bri - start_bri) * e %}
+              {{ [val | round(0) | int, end_bri | int] | min }}
+
+        - service: light.turn_on
+          target:
+            entity_id: "{{ light_entity }}"
+          data:
+            brightness: "{{ new_bri }}"
+            color_temp: "{{ ct | int }}"
+            transition: "{{ trans_s | int }}"
+
+  # Optional: turn off at time today (if still ahead)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ off_enabled }}"
+        sequence:
+          - variables:
+              off_dt: >-
+                {% set h = state_attr(turn_off_time, 'hour') | int(0) %}
+                {% set m = state_attr(turn_off_time, 'minute') | int(0) %}
+                {{ today_at("%02d:%02d" | format(h, m)) }}
+          - condition: template
+            value_template: "{{ off_dt > now() }}"
+          - delay: "{{ (off_dt - now()).total_seconds() | int }}"
+          - service: light.turn_off
+            target:
+              entity_id: "{{ light_entity }}"
+            data:
+              transition: "{{ trans_s | int }}"

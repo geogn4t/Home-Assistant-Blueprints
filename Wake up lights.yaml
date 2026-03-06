@@ -94,7 +94,9 @@ mode: single
 
 trigger:
   - platform: time_pattern
+    hours: "*" 
     minutes: "/1"
+    seconds: "0"
 
 variables:
   light_entity: !input light_entity

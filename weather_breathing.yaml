@@ -167,7 +167,6 @@ action:
                     transition: "{{ blink_delay }}"
                 - delay:
                     seconds: "{{ blink_delay }}"
-  # After breathing loop, set final color
   - service: light.turn_on
     target:
       entity_id: "{{ light_entity }}"
@@ -178,6 +177,7 @@ action:
 
   - service: "{{ notify_device }}"
     data:
-      message: "🌡️ Forecast high: {{ temp_f }}°F — Final Light color: {{ rgb_color }} | Precip: {{ actual_precip }}% at {{ current_time }}"
+      title: "🌤️ Today's Weather Forecast"
+      message: "High of {{ temp_f }}°F with a {{ actual_precip }}% chance of precipitation."
 
 mode: single

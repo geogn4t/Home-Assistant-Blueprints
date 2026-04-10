@@ -1,0 +1,386 @@
+blueprint:
+  name: Pico Remote - Scenes + Double Tap + Smart Dim
+  description: >
+    Lutron Pico 5-button remote via lutron_caseta_button_event (button_number mapping):
+      - Top (2): single press = scene, double tap = scene
+      - Center (3): single press = scene, double tap = scene
+      - Bottom (4): single press = scene, double tap = scene
+      - Raise (5) / Lower (6): adjust brightness only for bulbs that are ON
+
+    Double-tap detection uses input_datetime timestamps instead of input_booleans.
+    No stale flag risk, no cleanup timers. Requires one input_datetime helper
+    (time only, no date) per button.
+
+    All scenes are optional - leave blank to skip.
+    Scene settle delay prevents race conditions on rapid double-taps.
+  domain: automation
+
+  input:
+    pico_device_id:
+      name: Pico Device ID
+      description: Paste from your event data (e.g., 54efbd2d81feef1f11c34e725080a5f4)
+      selector:
+        text:
+
+    light_group:
+      name: Light Group or Light
+      description: Group of bulbs to control (or a single light entity)
+      selector:
+        entity:
+          domain: light
+
+    brightness_step:
+      name: Brightness Step (%)
+      description: Amount to adjust brightness per raise/lower press
+      default: 25
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+    double_tap_window:
+      name: Double-Tap Window (seconds)
+      description: Time window within which a second press counts as a double tap
+      default: 2
+      selector:
+        number:
+          min: 0.5
+          max: 5
+          step: 0.5
+          unit_of_measurement: s
+
+    scene_settle_delay_ms:
+      name: Scene Settle Delay (ms)
+      description: >
+        Milliseconds to wait after a single-press scene fires before issuing
+        any follow-up actions on a double tap. Prevents race conditions where
+        a scene command and a turn-off arrive at bulbs simultaneously.
+      default: 750
+      selector:
+        number:
+          min: 0
+          max: 2000
+          step: 50
+          unit_of_measurement: ms
+
+    # ── TOP BUTTON ────────────────────────────────────────────────────────────
+    last_press_top:
+      name: Top Button - Last Press Timestamp
+      description: >
+        input_datetime helper (time only, no date) to track double-tap timing
+        for the top button. Create one per remote, e.g. input_datetime.pico_miles_top.
+      selector:
+        entity:
+          domain: input_datetime
+
+    top_single_scene:
+      name: Top Button - Single Press Scene
+      description: Scene to activate on single press of top button (leave blank to skip)
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    top_double_scene:
+      name: Top Button - Double Tap Scene
+      description: Scene to activate on double tap of top button (leave blank to skip)
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    # ── CENTER BUTTON ─────────────────────────────────────────────────────────
+    last_press_center:
+      name: Center Button - Last Press Timestamp
+      description: >
+        input_datetime helper (time only, no date) to track double-tap timing
+        for the center button. Create one per remote, e.g. input_datetime.pico_miles_center.
+      selector:
+        entity:
+          domain: input_datetime
+
+    center_single_scene:
+      name: Center Button - Single Press Scene
+      description: Scene to activate on single press of center button (leave blank to skip)
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    center_double_scene:
+      name: Center Button - Double Tap Scene
+      description: Scene to activate on double tap of center button (leave blank to skip)
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    # ── BOTTOM BUTTON ─────────────────────────────────────────────────────────
+    last_press_bottom:
+      name: Bottom Button - Last Press Timestamp
+      description: >
+        input_datetime helper (time only, no date) to track double-tap timing
+        for the bottom button. Create one per remote, e.g. input_datetime.pico_miles_bottom.
+      selector:
+        entity:
+          domain: input_datetime
+
+    bottom_single_scene:
+      name: Bottom Button - Single Press Scene
+      description: Scene to activate on single press of bottom button (leave blank to skip)
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+    bottom_double_scene:
+      name: Bottom Button - Double Tap Scene
+      description: >
+        Scene to activate on double tap of bottom button (leave blank to skip).
+        Tip: use a scene that turns all lights off for an "all off" double tap.
+      default: ""
+      selector:
+        entity:
+          domain: scene
+
+trigger:
+  - id: top_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 2
+      action: press
+
+  - id: center_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 3
+      action: press
+
+  - id: bottom_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 4
+      action: press
+
+  - id: raise_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 5
+      action: press
+
+  - id: lower_press
+    platform: event
+    event_type: lutron_caseta_button_event
+    event_data:
+      device_id: !input pico_device_id
+      button_number: 6
+      action: press
+
+variables:
+  group_entity: !input light_group
+  bulbs: "{{ expand(group_entity) | map(attribute='entity_id') | list }}"
+  step_input: !input brightness_step
+  double_tap_window: !input double_tap_window
+  scene_settle_delay_ms: !input scene_settle_delay_ms
+  top_single_scene: !input top_single_scene
+  top_double_scene: !input top_double_scene
+  center_single_scene: !input center_single_scene
+  center_double_scene: !input center_double_scene
+  bottom_single_scene: !input bottom_single_scene
+  bottom_double_scene: !input bottom_double_scene
+  last_press_top: !input last_press_top
+  last_press_center: !input last_press_center
+  last_press_bottom: !input last_press_bottom
+
+mode: parallel
+max: 10
+
+action:
+  - choose:
+
+      # ── TOP BUTTON ──────────────────────────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: top_press
+        sequence:
+          - variables:
+              is_double_top: >
+                {% set t = states(last_press_top) %}
+                {% if t not in ['unknown', 'unavailable', '00:00:00'] %}
+                  {% set last = today_at(t) %}
+                  {% if last > now() %}
+                    {% set last = last - timedelta(days=1) %}
+                  {% endif %}
+                  {{ (now() - last).total_seconds() < double_tap_window }}
+                {% else %}
+                  false
+                {% endif %}
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input last_press_top
+            data:
+              time: "{{ now().strftime('%H:%M:%S') }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_double_top }}"
+                sequence:
+                  - delay:
+                      milliseconds: "{{ scene_settle_delay_ms | int }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (top_double_scene | string) | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ top_double_scene }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not is_double_top }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (top_single_scene | string) | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ top_single_scene }}"
+
+      # ── CENTER BUTTON ────────────────────────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: center_press
+        sequence:
+          - variables:
+              is_double_center: >
+                {% set t = states(last_press_center) %}
+                {% if t not in ['unknown', 'unavailable', '00:00:00'] %}
+                  {% set last = today_at(t) %}
+                  {% if last > now() %}
+                    {% set last = last - timedelta(days=1) %}
+                  {% endif %}
+                  {{ (now() - last).total_seconds() < double_tap_window }}
+                {% else %}
+                  false
+                {% endif %}
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input last_press_center
+            data:
+              time: "{{ now().strftime('%H:%M:%S') }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_double_center }}"
+                sequence:
+                  - delay:
+                      milliseconds: "{{ scene_settle_delay_ms | int }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (center_double_scene | string) | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ center_double_scene }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not is_double_center }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (center_single_scene | string) | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ center_single_scene }}"
+
+      # ── BOTTOM BUTTON ────────────────────────────────────────────────────────
+      - conditions:
+          - condition: trigger
+            id: bottom_press
+        sequence:
+          - variables:
+              is_double_bottom: >
+                {% set t = states(last_press_bottom) %}
+                {% if t not in ['unknown', 'unavailable', '00:00:00'] %}
+                  {% set last = today_at(t) %}
+                  {% if last > now() %}
+                    {% set last = last - timedelta(days=1) %}
+                  {% endif %}
+                  {{ (now() - last).total_seconds() < double_tap_window }}
+                {% else %}
+                  false
+                {% endif %}
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input last_press_bottom
+            data:
+              time: "{{ now().strftime('%H:%M:%S') }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ is_double_bottom }}"
+                sequence:
+                  - delay:
+                      milliseconds: "{{ scene_settle_delay_ms | int }}"
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (bottom_double_scene | string) | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ bottom_double_scene }}"
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not is_double_bottom }}"
+                sequence:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ (bottom_single_scene | string) | length > 0 }}"
+                        sequence:
+                          - service: scene.turn_on
+                            target:
+                              entity_id: "{{ bottom_single_scene }}"
+
+      # ── RAISE / LOWER (only adjust lights that are already on) ──────────────
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: trigger
+                id: raise_press
+              - condition: trigger
+                id: lower_press
+        sequence:
+          - variables:
+              step_value: >
+                {% if trigger.id == 'raise_press' %}
+                  {{ step_input }}
+                {% else %}
+                  {{ 0 - step_input }}
+                {% endif %}
+          - repeat:
+              for_each: "{{ bulbs }}"
+              sequence:
+                - condition: template
+                  value_template: "{{ is_state(repeat.item, 'on') }}"
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ repeat.item }}"
+                  data:
+                    brightness_step_pct: "{{ step_value }}"

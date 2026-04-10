@@ -1,11 +1,11 @@
 blueprint:
-  name: Pico Remote — Scenes + Simulated Double Tap + Smart Dim (button_number)
+  name: Pico Remote - Scenes + Simulated Double Tap + Smart Dim (button_number)
   description: >
     Lutron Pico via lutron_caseta_button_event (button_number mapping):
-      • Top (2): 1× = Bright Scene, 2× within window = Full Brightness
-      • Bottom (4): 1× = Dim Scene, 2× within window = All Off
-      • Raise (5) / Lower (6): adjust brightness only for bulbs that are ON
-      • Center (3): Center Scene
+      - Top (2): 1x = Bright Scene, 2x within window = Full Brightness
+      - Bottom (4): 1x = Dim Scene, 2x within window = All Off
+      - Raise (5) / Lower (6): adjust brightness only for bulbs that are ON
+      - Center (3): Center Scene
     Uses input_booleans to detect double taps; event triggers match on device_id + button_number.
   domain: automation
 
@@ -198,6 +198,8 @@ action:
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input double_tap_flag_bottom
+                  - delay:
+                      milliseconds: 750
                   - service: light.turn_off
                     target:
                       entity_id: "{{ bulbs }}"
